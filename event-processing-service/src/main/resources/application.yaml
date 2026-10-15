@@ -1,0 +1,30 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: event-processing-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/outbox_demo?currentSchema=flight_service}
+    username: ${DB_USERNAME:outbox}
+    password: ${DB_PASSWORD:outbox}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 10000
+        request.timeout.ms: 5000
+
+outbox:
+  topic: ${FLIGHT_TOPIC:flight.events}
+  poll-delay: ${OUTBOX_POLL_DELAY:1000}
+  batch-size: ${OUTBOX_BATCH_SIZE:10}
+  send-timeout: ${OUTBOX_SEND_TIMEOUT:10s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

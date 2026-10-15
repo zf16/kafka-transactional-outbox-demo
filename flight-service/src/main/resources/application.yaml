@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: flight-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/outbox_demo?currentSchema=flight_service}
+    username: ${DB_USERNAME:outbox}
+    password: ${DB_PASSWORD:outbox}
+  flyway:
+    schemas: flight_service
+    default-schema: flight_service
+    create-schemas: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
