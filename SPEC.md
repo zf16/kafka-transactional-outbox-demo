@@ -19,7 +19,7 @@ PostgreSQL replaces Amazon RDS/Aurora and Kafka replaces Amazon SQS. Business lo
 2. `event-processing-service`
    - Polls the outbox table.
    - Publishes pending events to Kafka.
-   - Deletes an event from the outbox after Kafka acknowledges it.
+   - Soft deletes an event by setting `processed_at` after Kafka acknowledges it.
 
 3. `payment-service`
    - Consumes flight events from Kafka.
@@ -38,7 +38,7 @@ PostgreSQL replaces Amazon RDS/Aurora and Kafka replaces Amazon SQS. Business lo
 ```text
 Client
   |
-  | POST /flights
+  | POST /api/v1/flights
   v
 flight-service
   |  one database transaction
@@ -80,7 +80,7 @@ Port: `8080`
 
 ### API
 
-#### `POST /flights`
+#### `POST /api/v1/flights`
 
 Request fields follow the AWS sample:
 
@@ -121,8 +121,8 @@ The service never sends directly to Kafka.
 
 ### Optional inspection endpoints
 
-- `GET /flights/{flightId}` returns a stored flight.
-- `GET /internal/outbox` returns pending outbox rows for demonstration purposes.
+- `GET /api/v1/flights/{flightId}` returns a stored flight.
+- `GET /api/v1/internal/outbox-events` returns retained outbox rows and their status for demonstration purposes.
 
 ## 6. Database
 
@@ -149,6 +149,7 @@ Flyway creates the tables.
 | `event_type` | `varchar(100)` | not null; `FLIGHT_BOOKED` |
 | `payload` | `jsonb` | not null |
 | `created_at` | `timestamptz` | not null |
+| `processed_at` | `timestamptz` | nullable; set only after Kafka acknowledges publication |
 
 If either insert fails, the transaction rolls back and neither row remains.
 
@@ -188,17 +189,17 @@ Kafka value:
 
 ## 8. Event processing service
 
-The service has no business API. A scheduled method runs once per second:
+The service has no business API. A scheduled method runs every 10 seconds:
 
 1. Select up to 10 outbox rows ordered by `id`.
 2. Publish each payload to `flight.events`, using `flight_id` as the Kafka key.
 3. Wait for Kafka acknowledgement.
-4. Delete the acknowledged row.
-5. If publication fails, log the error and leave the row for the next poll.
+4. Set `processed_at` on the acknowledged row; retain it for auditing.
+5. If publication fails, log the full error and leave the row pending for the next poll.
 
 The initial implementation runs one event processing instance, so distributed row claiming and parallel workers are out of scope.
 
-The publisher is at least once. A crash after Kafka accepts a message but before the row is deleted can cause the same outbox row to be read and published again. Every publication retains the original `eventId`, allowing the payment service to recognize the duplicate.
+The publisher is at least once. A crash after Kafka accepts a message but before the row is marked processed can cause the same outbox row to be read and published again. Every publication retains the original `eventId`, allowing the payment service to recognize the duplicate.
 
 ## 9. Payment service
 
@@ -229,7 +230,7 @@ The demo's action is only a log line, and a log cannot participate in the databa
 1. The client books a flight.
 2. The `flights` and `flight_outbox` rows commit together.
 3. The event processing service publishes the outbox event.
-4. Kafka acknowledges the publication, so the event processing service deletes the outbox row.
+4. Kafka acknowledges the publication, so the event processing service marks the outbox row processed.
 5. The payment service claims the `eventId`, logs the payment action, and commits the processed-event marker.
 
 ### Kafka unavailable
@@ -237,7 +238,7 @@ The demo's action is only a log line, and a log cannot participate in the databa
 1. The client can still book a flight.
 2. The event stays in `flight_outbox`.
 3. The event processing service logs publication failures.
-4. After Kafka returns, the event is published and deleted.
+4. After Kafka returns, the event is published and marked processed.
 
 ### Transaction rollback
 
@@ -245,7 +246,7 @@ If the outbox insert fails, the flight insert also rolls back. No event is publi
 
 ### Duplicate delivery
 
-If the event processing service crashes after publishing but before deleting the row, it can publish the same outbox event again after restart. Both Kafka records contain the same `eventId`.
+If the event processing service crashes after publishing but before marking the row processed, it can publish the same outbox event again after restart. Both Kafka records contain the same `eventId`.
 
 The first delivery inserts that ID into `processed_events` and runs the payment action. On the duplicate delivery, the unique primary key prevents another insert, so the payment service skips the action. Thus publication remains at least once while the consumer's business handling is effectively once.
 
@@ -276,7 +277,7 @@ Keep the test suite focused:
 
 - Flight service integration test: a booking creates both database rows.
 - Flight service integration test: a forced outbox failure rolls back the flight row.
-- Event processing test: a successful Kafka send deletes the outbox row.
+- Event processing test: a successful Kafka send marks the outbox row processed.
 - Event processing test: a failed Kafka send keeps the outbox row.
 - Payment service test: a flight event produces the expected log-processing call.
 - Payment service test: delivering the same `eventId` twice records it once and skips the second payment action.
@@ -289,7 +290,7 @@ Keep the test suite focused:
 - The separate event processing service publishes the event to `flight.events`.
 - The payment service logs that it is processing the payment.
 - Re-delivering the same `eventId` causes the payment service to skip the duplicate.
-- The outbox row is deleted only after Kafka acknowledges the event.
+- The outbox row is marked processed only after Kafka acknowledges the event and is never hard deleted.
 - When Kafka is unavailable, bookings still succeed and events remain in the outbox.
 - The README demonstrates the normal and Kafka-unavailable flows.
 

@@ -24,7 +24,7 @@ flight-service
 
 event-processing-service
 ├── model/        Outbox row model
-├── repository/   Outbox polling and deletion SQL
+├── repository/   Pending-event polling and soft-delete SQL
 ├── scheduler/    Scheduled polling trigger
 └── service/      Kafka publication transaction
 
@@ -59,7 +59,7 @@ curl --fail-with-body \
     "departureDateTime": "2026-11-01T08:00:00Z",
     "arrivalDateTime": "2026-11-01T09:15:00Z"
   }' \
-  http://localhost:8080/flights
+  http://localhost:8080/api/v1/flights
 ```
 
 The response contains the generated flight ID. Shortly afterward, the payment-service log contains a line like:
@@ -84,10 +84,11 @@ docker compose exec postgres \
   -c 'TABLE flight_service.flights;'
 ```
 
-List pending outbox events:
+List retained outbox events. `PENDING` rows have a null `processedAt`; published rows are
+kept with status `PROCESSED` for audit and demo inspection:
 
 ```bash
-curl --fail-with-body http://localhost:8080/internal/outbox
+curl --fail-with-body http://localhost:8080/api/v1/internal/outbox-events
 ```
 
 List processed event IDs:
@@ -106,7 +107,7 @@ Stop Kafka while leaving PostgreSQL and the services running:
 docker compose stop kafka
 ```
 
-Book another flight with the same `curl` request. The HTTP request still succeeds because the flight service only commits to PostgreSQL. The event remains visible at `GET /internal/outbox` while the event processor logs publication failures.
+Book another flight with the same `curl` request. The HTTP request still succeeds because the flight service only commits to PostgreSQL. The event remains `PENDING` at `GET /api/v1/internal/outbox-events` while the event processor logs publication failures.
 
 Restart Kafka:
 
@@ -114,11 +115,12 @@ Restart Kafka:
 docker compose start kafka
 ```
 
-The event processor retries on its next poll. The payment service logs the action, and the event disappears from the outbox.
+The event processor retries on its next 10-second poll. The payment service logs the action,
+and the outbox event changes to `PROCESSED` instead of being hard-deleted.
 
 ## Why duplicates are safe for the consumer
 
-The relay publishes at least once. It can crash after Kafka accepts a record but before PostgreSQL commits the outbox delete. On restart, it publishes the same row again with the same `eventId`.
+The relay publishes at least once. It can crash after Kafka accepts a record but before PostgreSQL commits the `processedAt` marker. On restart, it publishes the same row again with the same `eventId`.
 
 The payment service executes this PostgreSQL statement before its simulated payment action:
 
@@ -136,10 +138,13 @@ This demo only logs the payment action. Console output cannot be part of a datab
 
 | Service | Endpoint | Purpose |
 |---|---|---|
-| Flight | `POST /flights` | Book a flight and create its outbox event. |
-| Flight | `GET /flights/{id}` | Read a flight. |
-| Flight | `GET /internal/outbox` | Inspect pending events. |
+| Flight | `POST /api/v1/flights` | Book a flight and create its outbox event. |
+| Flight | `GET /api/v1/flights/{id}` | Read a flight. |
+| Flight | `GET /api/v1/internal/outbox-events` | Inspect retained events and processing status. |
 | All | `GET /actuator/health` | Check service health on ports 8080, 8081, or 8082. |
+
+The create endpoint returns `201 Created` and a versioned resource URL in the `Location`
+header. API errors use the RFC 9457 Problem Details JSON shape.
 
 ## Run tests locally
 

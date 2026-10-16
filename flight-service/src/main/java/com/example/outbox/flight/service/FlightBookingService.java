@@ -3,19 +3,25 @@ package com.example.outbox.flight.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.outbox.flight.domain.Flight;
+import com.example.outbox.flight.domain.OutboxEvent;
 import com.example.outbox.flight.dto.FlightBookedEvent;
 import com.example.outbox.flight.dto.FlightRequest;
 import com.example.outbox.flight.repository.FlightRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
 public class FlightBookingService {
+
+    private static final Logger log = LoggerFactory.getLogger(FlightBookingService.class);
 
     private final FlightRepository flightRepository;
     private final ObjectMapper objectMapper;
@@ -34,6 +40,7 @@ public class FlightBookingService {
 
     @Transactional
     public Flight book(FlightRequest request) {
+        log.info("book called: departure={} arrival={}", request.departureAirport(), request.arrivalAirport());
         validate(request);
 
         UUID flightId = UUID.randomUUID();
@@ -62,7 +69,25 @@ public class FlightBookingService {
 
         flightRepository.insertOutboxEvent(event, toJson(event));
 
+        log.info("book completed: flightId={} eventId={}", flightId, eventId);
         return flight;
+    }
+
+    @Transactional(readOnly = true)
+    public Flight findById(UUID flightId) {
+        log.info("findById called: flightId={}", flightId);
+        Flight flight = flightRepository.findById(flightId)
+                .orElseThrow(() -> new FlightNotFoundException(flightId));
+        log.info("findById completed: flightId={}", flightId);
+        return flight;
+    }
+
+    @Transactional(readOnly = true)
+    public List<OutboxEvent> findOutboxEvents() {
+        log.info("findOutboxEvents called");
+        List<OutboxEvent> events = flightRepository.findAllOutboxEvents();
+        log.info("findOutboxEvents completed: count={}", events.size());
+        return events;
     }
 
     private void validate(FlightRequest request) {

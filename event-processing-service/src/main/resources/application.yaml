@@ -19,7 +19,7 @@ spring:
 
 outbox:
   topic: ${FLIGHT_TOPIC:flight.events}
-  poll-delay: ${OUTBOX_POLL_DELAY:1000}
+  poll-delay: ${OUTBOX_POLL_DELAY:10000}
   batch-size: ${OUTBOX_BATCH_SIZE:10}
   send-timeout: ${OUTBOX_SEND_TIMEOUT:10s}
 
@@ -28,3 +28,7 @@ management:
     web:
       exposure:
         include: health,info
+
+logging:
+  level:
+    com.example.outbox: DEBUG

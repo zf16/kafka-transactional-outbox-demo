@@ -21,6 +21,7 @@ public class PaymentEventHandler {
 
     @Transactional
     public void handle(FlightBookedEvent event) {
+        log.info("handle called: eventId={} eventType={}", event.eventId(), event.eventType());
         if (!"FLIGHT_BOOKED".equals(event.eventType())) {
             throw new IllegalArgumentException("Unsupported event type: " + event.eventType());
         }
@@ -30,6 +31,7 @@ public class PaymentEventHandler {
 
         if (!processedEventRepository.claim(event.eventId())) {
             log.info("Skipping duplicate eventId={} flightId={}", event.eventId(), event.flight().id());
+            log.info("handle completed: eventId={} outcome=DUPLICATE", event.eventId());
             return;
         }
 
@@ -38,5 +40,6 @@ public class PaymentEventHandler {
                 event.flight().departureAirport(),
                 event.flight().arrivalAirport(),
                 event.eventId());
+        log.info("handle completed: eventId={} outcome=PROCESSED", event.eventId());
     }
 }

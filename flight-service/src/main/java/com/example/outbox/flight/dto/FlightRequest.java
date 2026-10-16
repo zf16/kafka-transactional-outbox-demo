@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
 
+/** Request body for creating a flight booking. */
 public record FlightRequest(
         @NotBlank String departureAirport,
         @NotBlank String arrivalAirport,

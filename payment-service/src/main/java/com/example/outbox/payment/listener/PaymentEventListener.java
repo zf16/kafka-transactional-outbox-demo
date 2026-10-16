@@ -25,10 +25,19 @@ public class PaymentEventListener {
 
     @KafkaListener(topics = "${payment.topic:flight.events}")
     public void onMessage(ConsumerRecord<String, String> record) {
-        FlightBookedEvent event = deserialize(record.value());
-        log.debug("Received eventId={} topic={} partition={} offset={}",
-                event.eventId(), record.topic(), record.partition(), record.offset());
-        handler.handle(event);
+        log.info("Kafka event received: topic={} partition={} offset={} key={}",
+                record.topic(), record.partition(), record.offset(), record.key());
+        try {
+            FlightBookedEvent event = deserialize(record.value());
+            log.info("Kafka event handling started: eventId={} flightId={}",
+                    event.eventId(), event.flight() == null ? null : event.flight().id());
+            handler.handle(event);
+            log.info("Kafka event handling completed: eventId={}", event.eventId());
+        } catch (RuntimeException exception) {
+            log.error("Kafka event handling failed: topic={} partition={} offset={}",
+                    record.topic(), record.partition(), record.offset(), exception);
+            throw exception;
+        }
     }
 
     private FlightBookedEvent deserialize(String json) {

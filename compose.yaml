@@ -80,7 +80,7 @@ services:
       DB_PASSWORD: outbox
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       FLIGHT_TOPIC: flight.events
-      OUTBOX_POLL_DELAY: 1000
+      OUTBOX_POLL_DELAY: 10000
     ports:
       - "8081:8081"
     depends_on:

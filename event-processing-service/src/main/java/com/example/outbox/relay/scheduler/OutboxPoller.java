@@ -18,16 +18,15 @@ public class OutboxPoller {
         this.batchProcessor = batchProcessor;
     }
 
-    @Scheduled(fixedDelayString = "${outbox.poll-delay:1000}")
+    /** Polls the outbox on a fixed delay and keeps scheduler failures contained. */
+    @Scheduled(fixedDelayString = "${outbox.poll-delay:10000}")
     public void poll() {
+        log.info("Outbox poll started");
         try {
             int count = batchProcessor.processBatch();
-            if (count > 0) {
-                log.info("Processed {} outbox event(s)", count);
-            }
+            log.info("Outbox poll completed: processedCount={}", count);
         } catch (RuntimeException exception) {
-            log.warn("Outbox publication failed; rows will be retried on the next poll: {}",
-                    exception.getMessage());
+            log.error("Outbox poll failed; pending rows will be retried on the next poll", exception);
         }
     }
 }
